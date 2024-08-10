@@ -1,8 +1,8 @@
 import React from 'react'
 import "./userInfo.css";
-import userStore from '../../../lib/userStore';
+import {useUserStore} from '../../../lib/userStore';
 const Userinfo = () => {
-  const {currentUser}=userStore();
+  const {currentUser}=useUserStore();
   return (
 
     <div className='userInfo'>
