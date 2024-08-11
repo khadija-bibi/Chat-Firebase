@@ -1,15 +1,17 @@
 import React, { useEffect, useState, useRef } from 'react'
 import "./chat.css";
 import EmojiPicker from "emoji-picker-react"
-import { doc, onSnapshot } from "firebase/firestore";
+import { arrayUnion, doc, getDoc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { useChatStore } from '../../lib/chatStore';
+import { useUserStore } from '../../lib/userStore';
 const Chat = () => {
   const [chat, setChat]=useState();
   const [open, setOpen]=useState(false);
   const [text, setText]=useState("");
 
   const { chatId } = useChatStore();
+  const { currentUser } = useUserStore();
 
   const endRef = useRef(null);
   useEffect(()=>{
@@ -34,6 +36,61 @@ const Chat = () => {
     setOpen(false);
   }
 
+  const handleSend = async () => {
+  if (text === "") return;
+
+  try {
+    // Check if the chat document exists
+    const chatDocRef = doc(db, "chats", chatId);
+    const chatDocSnap = await getDoc(chatDocRef);
+
+    if (!chatDocSnap.exists()) {
+      // Create the chat document if it doesn't exist
+      await setDoc(chatDocRef, {
+        messages: [],
+      });
+    }
+
+    // Now update the chat document with the new message
+    await updateDoc(chatDocRef, {
+      messages: arrayUnion({
+        senderId: currentUser.id,
+        text,
+        createdAt: new Date(),
+      }),
+    });
+
+    const userIds = [currentUser.id, chat.userId]; // Ensure chat.userId exists and is correct
+
+    userIds.forEach(async (id) => {
+      const userChatRef = doc(db, "userchats", id);
+      const userChatsSnapshot = await getDoc(userChatRef);
+
+      if (userChatsSnapshot.exists()) {
+        const userChatsData = userChatsSnapshot.data();
+
+        const chatIndex = userChatsData.chats.findIndex((c) => c.chatId === chatId);
+
+        if (chatIndex > -1) {
+          
+          userChatsData.chats[chatIndex].lastMessage = text;
+          userChatsData.chats[chatIndex].isSeen = id === currentUser.id? true:false;
+          userChatsData.chats[chatIndex].updatedAt = new Date().getTime();
+
+          await updateDoc(userChatRef, {
+            chats: userChatsData.chats,
+          });
+
+        } 
+      }
+    });
+
+    setText(""); // Clear the input after sending the message
+  } catch (error) {
+    console.error("Error sending message:", error);
+  }
+};
+
   return (
     <div className='chat'>
       <div className="top">
@@ -52,46 +109,19 @@ const Chat = () => {
         </div>
       </div>
       <div className="center">
-        <div className="message">
-          <img src="./avatar.png" alt="" />
-          <div className="texts">
-            <p>Lorem, ipsum dolor sit amet consectetur adipisicing elit. Dicta sequi facilis labore deleniti assumenda adipisci vitae dolorum! Nihil omnis commodi, consectetur, hic iusto ut esse expedita necessitatibus ex sequi voluptatibus.</p>
-            <span>1 min ago</span>
+        
+        {chat?.messages?.map(message=>(
+          <div className="message own" key={message?.createdAt}>
+            <div className="texts">
+              {message.img&& <img src={message.img} alt="" />}
+             
+             <p>{message.text}</p>
+             {/* <span>{message}</span> */}
+            </div>
           </div>
-        </div>
-        <div className="message own">
-          <div className="texts">
-            <p>Lorem, ipsum dolor sit amet consectetur adipisicing elit. Dicta sequi facilis labore deleniti assumenda adipisci vitae dolorum! Nihil omnis commodi, consectetur, hic iusto ut esse expedita necessitatibus ex sequi voluptatibus.</p>
-            <span>1 min ago</span>
-          </div>
-        </div>
-        <div className="message">
-          <img src="./avatar.png" alt="" />
-          <div className="texts">
-            <p>Lorem, ipsum dolor sit amet consectetur adipisicing elit. Dicta sequi facilis labore deleniti assumenda adipisci vitae dolorum! Nihil omnis commodi, consectetur, hic iusto ut esse expedita necessitatibus ex sequi voluptatibus.</p>
-            <span>1 min ago</span>
-          </div>
-        </div>
-        <div className="message own">
-          <div className="texts">
-            <img src="./globe.jpg" alt="" />
-            <p>Lorem, ipsum dolor sit amet consectetur adipisicing elit. Dicta sequi facilis labore deleniti assumenda adipisci vitae dolorum! Nihil omnis commodi, consectetur, hic iusto ut esse expedita necessitatibus ex sequi voluptatibus.</p>
-            <span>1 min ago</span>
-          </div>
-        </div>
-        <div className="message">
-          <img src="./avatar.png" alt="" />
-          <div className="texts">
-            <p>Lorem, ipsum dolor sit amet consectetur adipisicing elit. Dicta sequi facilis labore deleniti assumenda adipisci vitae dolorum! Nihil omnis commodi, consectetur, hic iusto ut esse expedita necessitatibus ex sequi voluptatibus.</p>
-            <span>1 min ago</span>
-          </div>
-        </div>
-        <div className="message own">
-          <div className="texts">
-            <p>Lorem, ipsum dolor sit amet consectetur adipisicing elit. Dicta sequi facilis labore deleniti assumenda adipisci vitae dolorum! Nihil omnis commodi, consectetur, hic iusto ut esse expedita necessitatibus ex sequi voluptatibus.</p>
-            <span>1 min ago</span>
-          </div>
-        </div>
+        ))
+         }
+        
         <div ref={endRef}></div>
       </div>
       <div className="bottom">
@@ -107,7 +137,7 @@ const Chat = () => {
             <EmojiPicker open={open} onEmojiClick={handleEmoji} />
           </div>
         </div>
-        <button className='sendButton'>Send</button>
+        <button className='sendButton' onClick={handleSend}>Send</button>
       </div>
     </div>
   )
