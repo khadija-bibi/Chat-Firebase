@@ -16,7 +16,7 @@ const Chat = () => {
     url: "",
   });
 
-  const { chatId } = useChatStore();
+  const { chatId, user, isCurrentUserBlocked, isReceiverBlocked } = useChatStore(); // Destructure user from useChatStore
   const { currentUser } = useUserStore();
 
   const endRef = useRef(null);
@@ -26,6 +26,8 @@ const Chat = () => {
   }, []);
 
   useEffect(() => {
+    if (!chatId) return;
+
     const unSub = onSnapshot(doc(db, "chats", chatId), (res) => {
       setChat(res.data());
     });
@@ -34,8 +36,6 @@ const Chat = () => {
       unSub();
     };
   }, [chatId]);
-
-  console.log(chat);
 
   const handleEmoji = (e) => {
     setText((prev) => prev + e.emoji);
@@ -48,7 +48,6 @@ const Chat = () => {
         file: e.target.files[0],
         url: URL.createObjectURL(e.target.files[0]),
       });
-      console.log("Image selected:", e.target.files[0]);
 
       // Automatically send the image after it's selected
       await handleSend();
@@ -63,47 +62,25 @@ const Chat = () => {
       return new Promise((resolve, reject) => {
         uploadTask.on(
           'state_changed',
-          (snapshot) => {
-            // Optionally handle progress
-          },
-          (error) => {
-            console.error("Upload error:", error);
-            reject(error);
-          },
+          () => {},
+          (error) => reject(error),
           async () => {
-            try {
-              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              console.log("Image uploaded, URL:", downloadURL);
-              resolve(downloadURL);
-            } catch (error) {
-              console.error("Error getting download URL:", error);
-              reject(error);
-            }
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+            resolve(downloadURL);
           }
         );
       });
     } catch (error) {
-      console.error("Error during upload:", error);
       throw error;
     }
   };
 
   const handleSend = async () => {
-    console.log("Sending message...");
-
-    if (!text.trim() && !img.file) {
-      console.log("No text or image to send.");
-      return;
-    }
+    if (!text.trim() && !img.file) return;
 
     let imgUrl = null;
 
     try {
-      if (!chatId) {
-        console.error("chatId is undefined");
-        return;
-      }
-
       const chatDocRef = doc(db, "chats", chatId);
       const chatDocSnap = await getDoc(chatDocRef);
 
@@ -118,24 +95,16 @@ const Chat = () => {
       const messageData = {
         senderId: currentUser.id,
         createdAt: new Date(),
+        text: text.trim(),
+        img: imgUrl || null,
       };
-
-      if (text.trim()) {
-        messageData.text = text.trim();
-      }
-
-      if (imgUrl) {
-        messageData.img = imgUrl;
-      }
 
       if (messageData.text || messageData.img) {
         await updateDoc(chatDocRef, {
           messages: arrayUnion(messageData),
         });
 
-        console.log("Message sent:", messageData);
-
-        const userIds = [currentUser.id, chat?.userId];
+        const userIds = [currentUser.id, user?.id];
         userIds.forEach(async (id) => {
           if (id) {
             const userChatRef = doc(db, "userchats", id);
@@ -146,8 +115,8 @@ const Chat = () => {
               const chatIndex = userChatsData.chats.findIndex((c) => c.chatId === chatId);
 
               if (chatIndex > -1) {
-                userChatsData.chats[chatIndex].lastMessage = text.trim() || "Image";
-                userChatsData.chats[chatIndex].isSeen = id === currentUser.id ? true : false;
+                userChatsData.chats[chatIndex].lastMessage = messageData.text || "Image";
+                userChatsData.chats[chatIndex].isSeen = id === currentUser.id;
                 userChatsData.chats[chatIndex].updatedAt = new Date().getTime();
 
                 await updateDoc(userChatRef, {
@@ -155,8 +124,6 @@ const Chat = () => {
                 });
               }
             }
-          } else {
-            console.error("Undefined userId encountered");
           }
         });
       }
@@ -172,9 +139,9 @@ const Chat = () => {
     <div className='chat'>
       <div className="top">
         <div className="user">
-          <img src="./avatar.png" alt="" />
+          <img src={user?.avatar || "./avatar.png"} alt="" />
           <div className="texts">
-            <span>Ali Khan</span>
+            <span>{user?.username}</span>
             <p>Lorem ipsum dolor sit amet.</p>
           </div>
         </div>
@@ -209,14 +176,14 @@ const Chat = () => {
           <img src="./camera.png" alt="" />
           <img src="./mic.png" alt="" />
         </div>
-        <input type="text" value={text} placeholder='Type a message...' onChange={(e) => setText(e.target.value)} />
+        <input type="text" value={text} placeholder={(isCurrentUserBlocked || isReceiverBlocked) ? "You cannot send a message": 'Type a message...'} disabled={isCurrentUserBlocked || isReceiverBlocked}onChange={(e) => setText(e.target.value)} />
         <div className="emoji">
           <img src="./emoji.png" alt="" onClick={() => setOpen((prev) => !prev)} />
           <div className="picker">
             <EmojiPicker open={open} onEmojiClick={handleEmoji} />
           </div>
         </div>
-        <button className='sendButton' onClick={handleSend}>Send</button>
+        <button className='sendButton' onClick={handleSend} disabled={isCurrentUserBlocked || isReceiverBlocked}>Send</button>
       </div>
     </div>
   );
